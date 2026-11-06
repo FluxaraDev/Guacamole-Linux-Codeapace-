@@ -81,7 +81,8 @@ if [ ! -x /usr/local/sbin/guacd ]; then
   curl -fLO https://dlcdn.apache.org/guacamole/1.6.0/source/guacamole-server-1.6.0.tar.gz || echo "!! guacd download FAILED"
   tar -xzf guacamole-server-1.6.0.tar.gz
   cd guacamole-server-1.6.0
-  ./configure --with-init-dir=/etc/init.d | tail -20
+  ./configure --with-init-dir=/etc/init.d CFLAGS="-O2 -Wno-error" | tail -20
+  sed -i '/#define _XOPEN_SOURCE 700/d' config.h
   make -j"$(nproc)" | tail -3
   sudo make install
   sudo ldconfig
@@ -90,7 +91,7 @@ fi
 [ -x /usr/local/sbin/guacd ] || echo "!! GUACD MISSING — build failed, check output above"
 
 # Tomcat + Guacamole webapp as ROOT app -> the 8080 URL opens it directly.
-if [ ! -d /opt/tomcat ]; then
+if [ ! -f /opt/tomcat/bin/startup.sh ]; then
   cd /tmp
   curl -fLO https://dlcdn.apache.org/tomcat/tomcat-9/v9.0.123/bin/apache-tomcat-9.0.123.tar.gz || echo "!! tomcat download FAILED"
   sudo mkdir -p /opt/tomcat
