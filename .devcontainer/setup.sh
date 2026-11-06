@@ -125,40 +125,35 @@ sudo chown -R "$(id -un)" /opt/tomcat
 
 cat > ~/start-desktop.sh <<'SEOF'
 #!/bin/bash
-# (Re)starts the whole stack. Run after every codespace start/wake.
-# Resolution: 1920x1080 = the Fortis panel native. Chromebook scaled?
-# Use 1536x864 or 1366x768 instead — just edit W/H here.
+# (Re)starts the whole stack and VERIFIES each piece — no fake banners.
+# Run after every codespace start/wake (processes don't survive a stop).
 W=1920; H=1080
-# VNC desktop
+echo "== starting stack =="
+# --- VNC desktop ---
 vncserver -kill :1 > /dev/null 2>&1 || true
-vncserver :1 -geometry "${W}x${H}" -depth 24 -localhost yes
-# guacd (correct flags: -l is the port; -p is the pid file)
-pgrep -x guacd > /dev/null || guacd -b 127.0.0.1 -l 4822 -p "$HOME/.guacamole/guacd.pid" -L info
-# Tomcat (Guacamole webapp)
-pgrep -f catalina > /dev/null || /opt/tomcat/bin/startup.sh
-# noVNC fallback
+vncserver :1 -geometry "${W}x${H}" -depth 24 -localhost yes > ~/vnc-start.log 2>&1
+sleep 2
+if ss -ltn | grep -q ':5901'; then echo "VNC      : UP (5901)"; else echo "VNC      : DOWN - last VNC log lines:"; tail -8 ~/.vnc/*:1.log; fi
+# --- guacd (foreground under setsid so its log is captured) ---
+pgrep -x guacd > /dev/null || setsid nohup guacd -f -b 127.0.0.1 -l 4822 -p "$HOME/.guacamole/guacd.pid" -L info > ~/guacd-start.log 2>&1 &
+sleep 1
+if pgrep -x guacd > /dev/null; then echo "guacd    : UP (4822)"; else echo "guacd    : DOWN"; tail -5 ~/guacd-start.log; fi
+# --- Tomcat (Guacamole webapp) ---
+pgrep -f catalina > /dev/null || /opt/tomcat/bin/startup.sh > ~/tomcat-start.log 2>&1
+ok=0; for i in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:8080/ && { ok=1; break; }; sleep 2; done
+if [ $ok = 1 ]; then echo "Guacamole: UP (8080)"; else echo "Guacamole: DOWN - catalina tail:"; tail -8 /opt/tomcat/logs/catalina.out; fi
+# --- noVNC fallback ---
 pkill -f websockify > /dev/null 2>&1 || true
 sleep 1
-nohup websockify --web /usr/share/novnc 6080 127.0.0.1:5901 > ~/novnc.log 2>&1 &
-# Wait for Guacamole to answer
-for i in $(seq 1 45); do
-  curl -s -o /dev/null http://127.0.0.1:8080/ && break
-  sleep 2
-done
+setsid nohup websockify --web /usr/share/novnc 6080 127.0.0.1:5901 > ~/novnc.log 2>&1 &
+sleep 1
+if ss -ltn | grep -q ':6080'; then echo "noVNC    : UP (6080)"; else echo "noVNC    : DOWN"; fi
 echo "=============================================================="
-echo "  GUACAMOLE (main door, port 8080):"
-if [ -n "$CODESPACE_NAME" ]; then
-  echo "    https://${CODESPACE_NAME}-8080.app.github.dev/"
-fi
-echo "    login:  nova / $(cat ~/.guacamole/plaintext-pass)"
-echo "    then click:  Ubuntu Desktop (VNC)"
-echo ""
-echo "  NOVNC (fallback, port 6080):"
-if [ -n "$CODESPACE_NAME" ]; then
-  echo "    https://${CODESPACE_NAME}-6080.app.github.dev/vnc.html"
-fi
-echo "    VNC password:  $(cat ~/.vnc/plaintext-pass)"
-echo "  (Ports tab in VS Code also opens both.)"
+if [ -n "$CODESPACE_NAME" ]; then echo "  GUACAMOLE: https://${CODESPACE_NAME}-8080.app.github.dev/"; fi
+echo "    login:  nova / $(cat ~/.guacamole/plaintext-pass 2>/dev/null || echo MISSING)"
+echo "    click:  Ubuntu Desktop (VNC)"
+if [ -n "$CODESPACE_NAME" ]; then echo "  NOVNC:     https://${CODESPACE_NAME}-6080.app.github.dev/vnc.html"; fi
+echo "    VNC password:  $(cat ~/.vnc/plaintext-pass 2>/dev/null || echo MISSING)"
 echo "=============================================================="
 SEOF
 chmod +x ~/start-desktop.sh
