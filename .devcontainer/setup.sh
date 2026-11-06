@@ -133,7 +133,7 @@ echo "== starting stack =="
 # --- Ubuntu GNOME session over TigerVNC ---
 tigervncserver -kill :1 > /dev/null 2>&1 || true
 tigervncserver :1 -localhost yes -geometry 1920x1080 -depth 24 \
-  -SecurityTypes VncAuth -PasswordFile "$HOME/.config/tigervnc/passwd"
+  -SecurityTypes VncAuth -PasswordFile "$HOME/.config/tigervnc/passwd" -xstartup "$HOME/.config/tigervnc/xstartup"
 ok=0; for i in $(seq 1 30); do ss -ltn | grep -q ':5901' && { ok=1; break; }; sleep 1; done
 if [ $ok = 1 ]; then echo "Desktop  : UP (VNC 5901)"; else echo "Desktop  : DOWN - VNC log:"; tail -12 "$HOME"/.config/tigervnc/*.log; fi
 pkill -f 'websockify.*6080' > /dev/null 2>&1 || true
