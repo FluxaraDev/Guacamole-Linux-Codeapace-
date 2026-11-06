@@ -24,10 +24,7 @@ precious gets committed/pushed or saved to Drive.
 ## Use it
 1. Put these files in a GitHub repo (`.devcontainer/` + this README).
 2. Repo page → **Code → Codespaces → Create codespace on main**.
-   First build runs `.devcontainer/setup.sh` automatically (~4–6 min). The
-   container is pinned to Ubuntu 24.04 so GNOME's X11 session works with TigerVNC.
-   For an existing Codespace, run **Codespaces: Rebuild Container** after pulling
-   this change.
+   First build runs `.devcontainer/setup.sh` automatically (~4–6 min).
 3. In the codespace terminal: `~/start-desktop.sh`
    It prints your desktop URL and VNC password.
 4. Open the URL (or Ports tab → 6080). Enter the VNC password. Fullscreen

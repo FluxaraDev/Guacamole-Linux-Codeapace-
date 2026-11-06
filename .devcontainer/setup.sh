@@ -50,6 +50,10 @@ if [ ! -f ~/.guacamole/plaintext-pass ]; then
   echo "$GUAC_PASS" > ~/.guacamole/plaintext-pass
   chmod 600 ~/.guacamole/plaintext-pass
 fi
+VNC_PASS=$(cat ~/.vnc/plaintext-pass)
+GUAC_PASS=$(cat ~/.guacamole/plaintext-pass)
+GUAC_USER=nova
+
 # Ubuntu 24.04's GNOME supports X11, so TigerVNC can host the full Ubuntu session.
 mkdir -p ~/.config/tigervnc
 cp ~/.vnc/passwd ~/.config/tigervnc/passwd
@@ -64,6 +68,8 @@ export XDG_CURRENT_DESKTOP=ubuntu:GNOME
 export DESKTOP_SESSION=ubuntu
 export GNOME_SHELL_SESSION_MODE=ubuntu
 export LIBGL_ALWAYS_SOFTWARE=1
+export XDG_RUNTIME_DIR=$HOME/.runtime
+mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
 exec dbus-run-session -- gnome-session --session=ubuntu
 XEOF
 chmod +x ~/.config/tigervnc/xstartup
@@ -76,6 +82,7 @@ if [ ! -x /usr/local/sbin/guacd ] || [ ! -e /usr/local/lib/libguac-client-vnc.so
   tar -xzf guacamole-server-1.6.0.tar.gz
   cd guacamole-server-1.6.0
   ./configure --with-init-dir=/etc/init.d CFLAGS="-O2 -Wno-error" | tail -20
+  sed -i '/#define _XOPEN_SOURCE 700/d' config.h
   make -j"$(nproc)" | tail -3
   sudo make install
   sudo ldconfig
