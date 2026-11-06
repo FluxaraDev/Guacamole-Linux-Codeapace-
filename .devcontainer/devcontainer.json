@@ -11,5 +11,6 @@
     }
   },
   "postCreateCommand": "bash .devcontainer/setup.sh",
-  "remoteUser": "vscode"
+  "remoteUser": "vscode",
+  "postStartCommand": "nohup ~/start-desktop.sh > ~/start-desktop-boot.log 2>&1 &"
 }
