@@ -62,6 +62,11 @@ unset DBUS_SESSION_BUS_ADDRESS
 export XDG_CURRENT_DESKTOP=Ubuntu:GNOME
 export GNOME_SHELL_SESSION_MODE=ubuntu
 export DESKTOP_SESSION=ubuntu
+export XDG_RUNTIME_DIR="$HOME/.runtime"
+mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
+export XDG_SESSION_TYPE=x11
+export LIBGL_ALWAYS_SOFTWARE=1
+export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
 xrdb "$HOME/.Xresources" 2>/dev/null
 # VNC is software-rendered: kill animations or GNOME feels like soup.
 gsettings set org.gnome.desktop.interface enable-animations false
@@ -73,7 +78,7 @@ chmod +x ~/.vnc/xstartup
 # tree doesn't eat workspace storage; installed to /usr/local.
 if [ ! -x /usr/local/sbin/guacd ]; then
   cd /tmp
-  curl -LO https://archive.apache.org/dist/guacamole/1.6.0/source/guacamole-server-1.6.0.tar.gz
+  curl -fLO https://dlcdn.apache.org/guacamole/1.6.0/source/guacamole-server-1.6.0.tar.gz || echo "!! guacd download FAILED"
   tar -xzf guacamole-server-1.6.0.tar.gz
   cd guacamole-server-1.6.0
   ./configure --with-init-dir=/etc/init.d | tail -20
@@ -82,17 +87,18 @@ if [ ! -x /usr/local/sbin/guacd ]; then
   sudo ldconfig
   cd ~
 fi
+[ -x /usr/local/sbin/guacd ] || echo "!! GUACD MISSING — build failed, check output above"
 
 # Tomcat + Guacamole webapp as ROOT app -> the 8080 URL opens it directly.
 if [ ! -d /opt/tomcat ]; then
   cd /tmp
-  curl -LO https://archive.apache.org/dist/tomcat/tomcat-9/v9.0.98/bin/apache-tomcat-9.0.98.tar.gz
+  curl -fLO https://dlcdn.apache.org/tomcat/tomcat-9/v9.0.123/bin/apache-tomcat-9.0.123.tar.gz || echo "!! tomcat download FAILED"
   sudo mkdir -p /opt/tomcat
-  sudo tar -xzf apache-tomcat-9.0.98.tar.gz -C /opt/tomcat --strip-components=1
+  sudo tar -xzf apache-tomcat-9.0.123.tar.gz -C /opt/tomcat --strip-components=1
   cd ~
 fi
 sudo rm -rf /opt/tomcat/webapps/ROOT
-sudo curl -L https://archive.apache.org/dist/guacamole/1.6.0/binary/guacamole-1.6.0.war -o /opt/tomcat/webapps/ROOT.war
+sudo curl -fL https://dlcdn.apache.org/guacamole/1.6.0/binary/guacamole-1.6.0.war -o /opt/tomcat/webapps/ROOT.war || echo "!! guacamole war download FAILED"
 printf 'guacd-hostname: 127.0.0.1\nguacd-port: 4822\n' > ~/.guacamole/guacamole.properties
 MD5=$(echo -n "$GUAC_PASS" | md5sum | cut -d' ' -f1)
 cat > ~/.guacamole/user-mapping.xml <<XEOF
@@ -156,5 +162,6 @@ echo "=============================================================="
 SEOF
 chmod +x ~/start-desktop.sh
 set +x
+[ -f /opt/tomcat/bin/startup.sh ] || echo "!! TOMCAT MISSING — check output above"
 echo "SETUP DONE. Start the desktop with:  ~/start-desktop.sh"
 echo "Disk now: $(df -h / | tail -1)"
