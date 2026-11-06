@@ -1,0 +1,11 @@
+{
+  "name": "Codespace Desktop — Ubuntu GNOME + Guacamole (lean)",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "forwardPorts": [8080, 6080],
+  "portsAttributes": {
+    "8080": { "label": "Desktop (Guacamole)", "onAutoForward": "ignore" },
+    "6080": { "label": "Desktop (noVNC fallback)", "onAutoForward": "ignore" }
+  },
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "remoteUser": "vscode"
+}
