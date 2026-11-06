@@ -72,10 +72,12 @@ export GNOME_SHELL_SESSION_MODE=ubuntu
 export LIBGL_ALWAYS_SOFTWARE=1
 export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
 mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
+# NOTE: no --x11 flag - GNOME 48 removed it ('Unknown option --x11');
+# XDG_SESSION_TYPE=x11 above selects the X11 backend.
 exec dbus-run-session -- sh -c '
   for d in /usr/libexec/gsd-*; do [ -x "$d" ] && "$d" >/dev/null 2>&1 & done
   sleep 1
-  exec gnome-shell --x11 >>$HOME/session.log 2>&1
+  exec gnome-shell >>$HOME/session.log 2>&1
 '
 XEOF
 chmod +x ~/.vnc/xstartup
