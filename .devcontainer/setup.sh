@@ -22,7 +22,14 @@ sudo apt-get install -y -qq --no-install-recommends \
   libvncserver-dev libpulse-dev libwebp-dev libssl-dev
 
 # FreeRDP dev: guacd's RDP protocol plugin (GNOME 50 streams via RDP, see below).
-sudo apt-get install -y -qq libfreerdp3-dev 2>/dev/null || sudo apt-get install -y -qq libfreerdp-dev 2>/dev/null || sudo apt-get install -y -qq freerdp2-dev 2>/dev/null || echo "!! no freerdp dev package found"
+# Ubuntu 26.04 ships FreeRDP 3.32 runtime libs but the -dev packaging is split;
+# install every plausible name, then let pkg-config be the judge.
+if ! pkg-config --exists freerdp3 2>/dev/null; then
+  for p in freerdp3-dev libfreerdp3-dev libfreerdp-client3-dev libfreerdp-server3-dev libwinpr3-dev; do
+    sudo apt-get install -y -qq "$p" 2>/dev/null || true
+  done
+fi
+echo "freerdp3 pkg-config: $(pkg-config --modversion freerdp3 2>/dev/null || echo MISSING)"
 
 # Firefox: Ubuntu's deb is a snap stub (snaps don't run here) -> Mozilla tarball.
 if [ ! -x /opt/firefox/firefox ]; then
@@ -74,6 +81,10 @@ export LIBGL_ALWAYS_SOFTWARE=1
 export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
 exec dbus-run-session -- sh -c '
   for d in /usr/libexec/gsd-*; do [ -x "$d" ] && "$d" >/dev/null 2>&1 & done
+  grdctl --headless rdp set-tls-cert $HOME/.config/gnome-remote-desktop/rdp-tls.crt >>$HOME/session.log 2>&1
+  grdctl --headless rdp set-tls-key $HOME/.config/gnome-remote-desktop/rdp-tls.key >>$HOME/session.log 2>&1
+  grdctl --headless rdp set-credentials nova "$(cat $HOME/.vnc/plaintext-pass)" >>$HOME/session.log 2>&1
+  grdctl --headless rdp enable >>$HOME/session.log 2>&1 || true
   /usr/libexec/gnome-remote-desktop-daemon --headless >>$HOME/session.log 2>&1 &
   sleep 1
   exec gnome-shell --headless --virtual-monitor 1920x1080 >>$HOME/session.log 2>&1
@@ -90,15 +101,7 @@ if [ ! -f ~/.config/gnome-remote-desktop/rdp-tls.crt ]; then
     -keyout ~/.config/gnome-remote-desktop/rdp-tls.key \
     -out ~/.config/gnome-remote-desktop/rdp-tls.crt > /dev/null 2>&1
 fi
-if command -v grdctl > /dev/null; then
-  grdctl --headless rdp set-tls-cert ~/.config/gnome-remote-desktop/rdp-tls.crt || true
-  grdctl --headless rdp set-tls-key ~/.config/gnome-remote-desktop/rdp-tls.key || true
-  grdctl --headless rdp set-credentials "$GUAC_USER" "$VNC_PASS" || true
-  grdctl --headless rdp enable || true
-  echo "grd headless configured (RDP user: $GUAC_USER)"
-else
-  echo "!! grdctl MISSING"
-fi
+echo "grd: cert ready; grdctl config runs inside the session (it needs the session bus)"
 
 # guacd (Guacamole's daemon, RDP protocol) — built in /tmp so the build
 # tree doesn't eat workspace storage; installed to /usr/local.
@@ -167,11 +170,16 @@ setsid nohup ~/run-session.sh > ~/session-start.log 2>&1 &
 ok=0; for i in $(seq 1 30); do ss -ltn | grep -q ':3389' && { ok=1; break; }; sleep 2; done
 if [ $ok = 1 ]; then echo "Desktop  : UP (RDP 3389)"; else echo "Desktop  : DOWN - session log:"; tail -8 ~/session.log; fi
 # --- guacd (foreground under setsid so its log is captured) ---
-pgrep -x guacd > /dev/null || setsid nohup guacd -f -b 127.0.0.1 -l 4822 -p "$HOME/.guacamole/guacd.pid" -L info > ~/guacd-start.log 2>&1 &
+pkill -x guacd > /dev/null 2>&1 || true
+sleep 1
+setsid nohup guacd -f -b 127.0.0.1 -l 4822 -p "$HOME/.guacamole/guacd.pid" -L info > ~/guacd-start.log 2>&1 &
 sleep 1
 if pgrep -x guacd > /dev/null; then echo "guacd    : UP (4822)"; else echo "guacd    : DOWN"; tail -5 ~/guacd-start.log; fi
 # --- Tomcat (Guacamole webapp) ---
-pgrep -f catalina > /dev/null || /opt/tomcat/bin/startup.sh > ~/tomcat-start.log 2>&1
+/opt/tomcat/bin/shutdown.sh > /dev/null 2>&1 || true
+pkill -f catalina > /dev/null 2>&1 || true
+sleep 2
+/opt/tomcat/bin/startup.sh > ~/tomcat-start.log 2>&1
 ok=0; for i in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:8080/ && { ok=1; break; }; sleep 2; done
 if [ $ok = 1 ]; then echo "Guacamole: UP (8080)"; else echo "Guacamole: DOWN - catalina tail:"; tail -8 /opt/tomcat/logs/catalina.out; fi
 echo "=============================================================="
