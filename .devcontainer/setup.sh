@@ -16,20 +16,9 @@ sudo apt-get install -y -qq --no-install-recommends \
   ubuntu-wallpapers fonts-dejavu fonts-liberation \
   tigervnc-standalone-server tigervnc-common novnc websockify \
   dbus-x11 x11-xserver-utils xauth curl net-tools procps \
-  gnome-remote-desktop openssl \
   default-jre-headless build-essential pkg-config libcairo2-dev \
   libjpeg-turbo8-dev libpng-dev libtool-bin libossp-uuid-dev uuid-dev \
   libvncserver-dev libpulse-dev libwebp-dev libssl-dev
-
-# FreeRDP dev: guacd's RDP protocol plugin (GNOME 50 streams via RDP, see below).
-# Ubuntu 26.04 ships FreeRDP 3.32 runtime libs but the -dev packaging is split;
-# install every plausible name, then let pkg-config be the judge.
-if ! pkg-config --exists freerdp3 2>/dev/null; then
-  for p in freerdp3-dev libfreerdp3-dev libfreerdp-client3-dev libfreerdp-server3-dev libwinpr3-dev; do
-    sudo apt-get install -y -qq "$p" 2>/dev/null || true
-  done
-fi
-echo "freerdp3 pkg-config: $(pkg-config --modversion freerdp3 2>/dev/null || echo MISSING)"
 
 # Firefox: Ubuntu's deb is a snap stub (snaps don't run here) -> Mozilla tarball.
 if [ ! -x /opt/firefox/firefox ]; then
@@ -61,68 +50,39 @@ if [ ! -f ~/.guacamole/plaintext-pass ]; then
   echo "$GUAC_PASS" > ~/.guacamole/plaintext-pass
   chmod 600 ~/.guacamole/plaintext-pass
 fi
-VNC_PASS=$(cat ~/.vnc/plaintext-pass)
-GUAC_PASS=$(cat ~/.guacamole/plaintext-pass)
-GUAC_USER=nova
-
-# Desktop session: GNOME 50 is Wayland-only; its display-server mode demands a
-# logind session ("Failed to find any matching session") a container can't have.
-# Supported route: gnome-shell --headless (virtual monitor) streamed by
-# gnome-remote-desktop over RDP - which Guacamole speaks natively.
-cat > ~/run-session.sh <<'XEOF'
-#!/bin/bash
-export XDG_RUNTIME_DIR=$HOME/.runtime
-mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
+# Ubuntu 24.04's GNOME supports X11, so TigerVNC can host the full Ubuntu session.
+mkdir -p ~/.config/tigervnc
+cp ~/.vnc/passwd ~/.config/tigervnc/passwd
+chmod 600 ~/.config/tigervnc/passwd
+cat > ~/.config/tigervnc/xstartup <<'XEOF'
+#!/bin/sh
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+export XDG_SESSION_TYPE=x11
 export XDG_SESSION_DESKTOP=ubuntu
 export XDG_CURRENT_DESKTOP=ubuntu:GNOME
 export DESKTOP_SESSION=ubuntu
 export GNOME_SHELL_SESSION_MODE=ubuntu
 export LIBGL_ALWAYS_SOFTWARE=1
-export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
-exec dbus-run-session -- sh -c '
-  for d in /usr/libexec/gsd-*; do [ -x "$d" ] && "$d" >/dev/null 2>&1 & done
-  grdctl --headless rdp set-tls-cert $HOME/.config/gnome-remote-desktop/rdp-tls.crt >>$HOME/session.log 2>&1
-  grdctl --headless rdp set-tls-key $HOME/.config/gnome-remote-desktop/rdp-tls.key >>$HOME/session.log 2>&1
-  grdctl --headless rdp set-credentials nova "$(cat $HOME/.vnc/plaintext-pass)" >>$HOME/session.log 2>&1
-  grdctl --headless rdp enable >>$HOME/session.log 2>&1 || true
-  /usr/libexec/gnome-remote-desktop-daemon --headless >>$HOME/session.log 2>&1 &
-  sleep 1
-  exec gnome-shell --headless --virtual-monitor 1920x1080 >>$HOME/session.log 2>&1
-'
+exec dbus-run-session -- gnome-session --session=ubuntu
 XEOF
-chmod +x ~/run-session.sh
+chmod +x ~/.config/tigervnc/xstartup
 
-# gnome-remote-desktop headless config: self-signed TLS + RDP credentials.
-# The RDP password reuses the VNC password value - Guacamole passes it
-# automatically from user-mapping.xml, so the user never types it.
-mkdir -p ~/.config/gnome-remote-desktop
-if [ ! -f ~/.config/gnome-remote-desktop/rdp-tls.crt ]; then
-  openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=localhost" \
-    -keyout ~/.config/gnome-remote-desktop/rdp-tls.key \
-    -out ~/.config/gnome-remote-desktop/rdp-tls.crt > /dev/null 2>&1
-fi
-echo "grd: cert ready; grdctl config runs inside the session (it needs the session bus)"
-
-# guacd (Guacamole's daemon, RDP protocol) — built in /tmp so the build
+# guacd (Guacamole's daemon, VNC protocol) — built in /tmp so the build
 # tree doesn't eat workspace storage; installed to /usr/local.
-if [ ! -x /usr/local/sbin/guacd ] || [ ! -e /usr/local/lib/libguac-client-rdp.so ]; then
+if [ ! -x /usr/local/sbin/guacd ] || [ ! -e /usr/local/lib/libguac-client-vnc.so ]; then
   cd /tmp
   curl -fLO https://dlcdn.apache.org/guacamole/1.6.0/source/guacamole-server-1.6.0.tar.gz || echo "!! guacd download FAILED"
   tar -xzf guacamole-server-1.6.0.tar.gz
   cd guacamole-server-1.6.0
   ./configure --with-init-dir=/etc/init.d CFLAGS="-O2 -Wno-error" | tail -20
-  sed -i '/#define _XOPEN_SOURCE 700/d' config.h
-  # FreeRDP >= 3.31 moved rdpInput back to rdpContext (the header literally says
-  # "use rdpContext::input instead"); guacamole 1.6.0 still dereferences it off the
-  # instance, which no longer has the member. Point those call sites at the context.
-  sed -i 's/GUAC_RDP_CONTEXT(rdp_inst)->input/(rdp_inst)->context->input/g' src/protocols/rdp/input-queue.c src/protocols/rdp/keyboard.c
   make -j"$(nproc)" | tail -3
   sudo make install
   sudo ldconfig
   cd ~
 fi
 [ -x /usr/local/sbin/guacd ] || echo "!! GUACD MISSING — build failed, check output above"
-[ -e /usr/local/lib/libguac-client-rdp.so ] || echo "!! RDP PLUGIN MISSING — guacd built without FreeRDP"
+[ -e /usr/local/lib/libguac-client-vnc.so ] || echo "!! VNC plugin missing; check the guacd build output"
 
 # Tomcat + Guacamole webapp as ROOT app -> the 8080 URL opens it directly.
 if [ ! -f /opt/tomcat/bin/startup.sh ]; then
@@ -140,18 +100,17 @@ cat > ~/.guacamole/user-mapping.xml <<XEOF
 <user-mapping>
   <authorize username="$GUAC_USER" password="$MD5" encoding="md5">
     <connection name="Ubuntu Desktop">
-      <protocol>rdp</protocol>
+      <protocol>vnc</protocol>
       <param name="hostname">127.0.0.1</param>
-      <param name="port">3389</param>
-      <param name="username">$GUAC_USER</param>
+      <param name="port">5901</param>
       <param name="password">$VNC_PASS</param>
-      <param name="security">any</param>
-      <param name="ignore-cert">true</param>
+      <param name="color-depth">24</param>
       <param name="resize-method">display-update</param>
     </connection>
   </authorize>
 </user-mapping>
 XEOF
+chmod 600 ~/.guacamole/user-mapping.xml
 JAVA_BIN=$(readlink -f "$(command -v java)")
 sudo tee /opt/tomcat/bin/setenv.sh > /dev/null <<XEOF
 export JAVA_HOME=${JAVA_BIN%/bin/java}
@@ -164,15 +123,16 @@ cat > ~/start-desktop.sh <<'SEOF'
 # (Re)starts the whole stack and VERIFIES each piece - no fake banners.
 # Run after every codespace start/wake (processes don't survive a stop).
 echo "== starting stack =="
-# --- desktop session: headless GNOME shell over RDP (gnome-remote-desktop) ---
-pkill -f run-session.sh > /dev/null 2>&1 || true
-pkill -f gnome-remote-desktop-daemon > /dev/null 2>&1 || true
-pkill -x gnome-shell > /dev/null 2>&1 || true
-sleep 1
-: > ~/session.log
-setsid nohup ~/run-session.sh > ~/session-start.log 2>&1 &
-ok=0; for i in $(seq 1 30); do ss -ltn | grep -q ':3389' && { ok=1; break; }; sleep 2; done
-if [ $ok = 1 ]; then echo "Desktop  : UP (RDP 3389)"; else echo "Desktop  : DOWN - session log:"; tail -8 ~/session.log; fi
+# --- Ubuntu GNOME session over TigerVNC ---
+tigervncserver -kill :1 > /dev/null 2>&1 || true
+tigervncserver :1 -localhost yes -geometry 1920x1080 -depth 24 \
+  -SecurityTypes VncAuth -PasswordFile "$HOME/.config/tigervnc/passwd"
+ok=0; for i in $(seq 1 30); do ss -ltn | grep -q ':5901' && { ok=1; break; }; sleep 1; done
+if [ $ok = 1 ]; then echo "Desktop  : UP (VNC 5901)"; else echo "Desktop  : DOWN - VNC log:"; tail -12 "$HOME"/.config/tigervnc/*.log; fi
+pkill -f 'websockify.*6080' > /dev/null 2>&1 || true
+setsid nohup websockify --web /usr/share/novnc 6080 127.0.0.1:5901 > ~/novnc.log 2>&1 < /dev/null &
+ok=0; for i in $(seq 1 10); do ss -ltn | grep -q ':6080' && { ok=1; break; }; sleep 1; done
+if [ $ok = 1 ]; then echo "noVNC    : UP (6080)"; else echo "noVNC    : DOWN"; tail -5 ~/novnc.log; fi
 # --- guacd (foreground under setsid so its log is captured) ---
 pkill -x guacd > /dev/null 2>&1 || true
 sleep 1
@@ -189,7 +149,8 @@ if [ $ok = 1 ]; then echo "Guacamole: UP (8080)"; else echo "Guacamole: DOWN - c
 echo "=============================================================="
 if [ -n "$CODESPACE_NAME" ]; then echo "  GUACAMOLE: https://${CODESPACE_NAME}-8080.app.github.dev/"; fi
 echo "    login:  nova / $(cat ~/.guacamole/plaintext-pass 2>/dev/null || echo MISSING)"
-echo "    click:  Ubuntu Desktop  (RDP starts automatically, no second password)"
+echo "    click:  Ubuntu Desktop  (VNC starts automatically, no second password)"
+echo "    noVNC:  VNC password is $(cat ~/.vnc/plaintext-pass 2>/dev/null || echo MISSING)"
 echo "=============================================================="
 SEOF
 chmod +x ~/start-desktop.sh

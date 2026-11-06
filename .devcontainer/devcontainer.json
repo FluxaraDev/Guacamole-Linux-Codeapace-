@@ -1,13 +1,17 @@
 {
   "name": "Codespace Desktop \u2014 Ubuntu GNOME + Guacamole (lean)",
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
   "forwardPorts": [
-    8080
+    8080,
+    6080
   ],
   "portsAttributes": {
     "8080": {
       "label": "Guacamole desktop",
       "onAutoForward": "openBrowser"
+    },
+    "6080": {
+      "label": "noVNC fallback"
     }
   },
   "postCreateCommand": "bash .devcontainer/setup.sh",
