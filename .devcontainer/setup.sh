@@ -112,6 +112,10 @@ if [ ! -x /usr/local/sbin/guacd ] || [ ! -e /usr/local/lib/libguac-client-rdp.so
   cd guacamole-server-1.6.0
   ./configure --with-init-dir=/etc/init.d CFLAGS="-O2 -Wno-error" | tail -20
   sed -i '/#define _XOPEN_SOURCE 700/d' config.h
+  # FreeRDP >= 3.31 moved rdpInput back to rdpContext (the header literally says
+  # "use rdpContext::input instead"); guacamole 1.6.0 still dereferences it off the
+  # instance, which no longer has the member. Point those call sites at the context.
+  sed -i 's/GUAC_RDP_CONTEXT(rdp_inst)->input/(rdp_inst)->context->input/g' src/protocols/rdp/input-queue.c src/protocols/rdp/keyboard.c
   make -j"$(nproc)" | tail -3
   sudo make install
   sudo ldconfig
