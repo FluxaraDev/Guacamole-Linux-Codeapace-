@@ -9,7 +9,7 @@ export DEBIAN_FRONTEND=noninteractive
 # base:ubuntu image is ~2 GB, which is how a 32 GB disk becomes livable.
 sudo apt-get update -qq
 sudo apt-get install -y -qq --no-install-recommends \
-  gnome-shell gnome-session ubuntu-session ubuntu-settings \
+  gnome-shell gnome-session gnome-settings-daemon ubuntu-session ubuntu-settings \
   gnome-shell-extension-ubuntu-dock gnome-shell-extension-desktop-icons-ng \
   gnome-control-center nautilus gnome-terminal gnome-tweaks \
   yaru-theme-gtk yaru-theme-icon yaru-theme-gnome-shell yaru-theme-sound \
@@ -57,20 +57,26 @@ GUAC_USER=nova
 # VNC session -> the Ubuntu GNOME session (dock + Yaru come with it)
 cat > ~/.vnc/xstartup <<'XEOF'
 #!/bin/sh
+# GNOME session WITHOUT gnome-session: on Ubuntu 25.x gnome-session launches via
+# systemd user targets (gnome-session@ubuntu.target) and Codespaces has no systemd,
+# so it aborts (signal 6) and TigerVNC kills the X server. Start the real Ubuntu
+# shell directly instead: settings daemons + gnome-shell in ubuntu mode.
 unset SESSION_MANAGER
 unset DBUS_SESSION_BUS_ADDRESS
-export XDG_CURRENT_DESKTOP=Ubuntu:GNOME
-export GNOME_SHELL_SESSION_MODE=ubuntu
+export XDG_SESSION_DESKTOP=ubuntu
+export XDG_CURRENT_DESKTOP=ubuntu:GNOME
 export DESKTOP_SESSION=ubuntu
-export XDG_RUNTIME_DIR="$HOME/.runtime"
-mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
 export XDG_SESSION_TYPE=x11
+export XDG_RUNTIME_DIR=$HOME/.runtime
+export GNOME_SHELL_SESSION_MODE=ubuntu
 export LIBGL_ALWAYS_SOFTWARE=1
 export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
-xrdb "$HOME/.Xresources" 2>/dev/null
-# VNC is software-rendered: kill animations or GNOME feels like soup.
-gsettings set org.gnome.desktop.interface enable-animations false
-exec dbus-launch --exit-with-session gnome-session --session=ubuntu
+mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
+exec dbus-run-session -- sh -c '
+  for d in /usr/libexec/gsd-*; do [ -x "$d" ] && "$d" >/dev/null 2>&1 & done
+  sleep 1
+  exec gnome-shell --x11 >>$HOME/session.log 2>&1
+'
 XEOF
 chmod +x ~/.vnc/xstartup
 
